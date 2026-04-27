@@ -1,5 +1,4 @@
-/* eslint-disable prefer-const */
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ /* eslint-disable @typescript-eslint/no-explicit-any */
 // lib/store.ts
 export let rooms = [
   {
@@ -38,4 +37,7 @@ export const createBooking = (booking: any) => {
 export const updateBookingStatus = (id: number, status: string) => {
   const index = bookings.findIndex((b) => b.id === id);
   if (index !== -1) bookings[index].status = status;
+};
+export const deleteBooking = (id: number) => {
+  bookings = bookings.filter((b) => b.id !== id);
 };

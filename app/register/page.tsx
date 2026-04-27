@@ -1,11 +1,16 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+
+const STUDENT_PREFIX = "68306130";
+const ADMIN_PREFIX = "77006131";
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*[^A-Za-z0-9]).{8,}$/;
+
+type ToastType = "success" | "error";
 
 export default function RegisterPage() {
   const router = useRouter();
-
   const [role, setRole] = useState<"student" | "admin">("student");
 
   const [formData, setFormData] = useState({
@@ -19,55 +24,131 @@ export default function RegisterPage() {
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [toast, setToast] = useState<{ message: string; type: ToastType } | null>(
+    null,
+  );
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    };
+  }, []);
+
+  const showToast = (message: string, type: ToastType) => {
+    setToast({ message, type });
+
+    if (toastTimer.current) {
+      clearTimeout(toastTimer.current);
+    }
+
+    toastTimer.current = setTimeout(() => {
+      setToast(null);
+    }, 2500);
+  };
+
+  const normalizeDigits = (value: string) => value.replace(/\D/g, "").slice(0, 10);
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
     if (!formData.name.trim()) newErrors.name = "Please enter the name";
-    if (!formData.password) newErrors.password = "Please enter the password";
 
-    if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = "Passwords are not match";
+    if (!formData.email.trim()) {
+      newErrors.email = "Please enter email address";
+    } else {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(formData.email)) {
+        newErrors.email = "Please enter a valid email format";
+      }
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!formData.password) {
+      newErrors.password = "Please enter the password";
+    } else if (!PASSWORD_REGEX.test(formData.password)) {
+      newErrors.password =
+        "Password must be at least 8 characters and include 1 lowercase letter, 1 uppercase letter, and 1 symbol";
+    }
+
+    if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = "Passwords do not match";
+    }
 
     if (role === "student") {
       if (!formData.gender) newErrors.gender = "Please select the gender";
 
-      if (!formData.email) {
-        newErrors.email = "Please enter email address";
-      } else if (!emailRegex.test(formData.email)) {
-        newErrors.email = "Please enter a valid email format";
-      }
-
       if (!formData.studentId) {
-        newErrors.studentId = "Please enter the student id number";
+        newErrors.studentId = "Please enter the student ID";
+      } else if (!new RegExp(`^${STUDENT_PREFIX}\\d{2}$`).test(formData.studentId)) {
+        newErrors.studentId = `Student ID must start with ${STUDENT_PREFIX} and end with exactly 2 digits`;
       }
     }
 
     if (role === "admin") {
-      if (!formData.email) {
-        newErrors.email = "Please enter email address";
-      } else if (!emailRegex.test(formData.email)) {
-        newErrors.email = "Please enter a valid email format";
-      }
-
       if (!formData.adminId) {
-        newErrors.adminId = "Please enter admin id";
+        newErrors.adminId = "Please enter the admin ID";
+      } else if (!new RegExp(`^${ADMIN_PREFIX}\\d{2}$`).test(formData.adminId)) {
+        newErrors.adminId = `Admin ID must start with ${ADMIN_PREFIX} and end with exactly 2 digits`;
       }
     }
 
     setErrors(newErrors);
+
+    if (Object.keys(newErrors).length > 0) {
+      showToast(Object.values(newErrors)[0], "error");
+    }
+
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (validateForm()) {
-      setErrors({});
-      router.push("/login");
+    if (!validateForm()) return;
+
+    try {
+      const payload =
+        role === "student"
+          ? {
+              role: "student",
+              gender: formData.gender,
+              name: formData.name,
+              email: formData.email,
+              studentId: formData.studentId,
+              password: formData.password,
+            }
+          : {
+              role: "admin",
+              name: formData.name,
+              email: formData.email,
+              adminId: formData.adminId,
+              password: formData.password,
+            };
+
+      const res = await fetch("http://localhost:3001/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      const message = Array.isArray(data?.message)
+        ? data.message.join(", ")
+        : data?.message;
+
+      if (!res.ok) {
+        showToast(message || "Registration failed", "error");
+        return;
+      }
+
+      showToast("Registration successful", "success");
+
+      setTimeout(() => {
+        router.replace("/login");
+      }, 900);
+    } catch (error) {
+      console.error(error);
+      showToast("Something went wrong", "error");
     }
   };
 
@@ -76,6 +157,18 @@ export default function RegisterPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-200 flex items-center justify-center px-6 py-10">
+      {toast && (
+        <div
+          className={`fixed right-6 top-6 z-50 rounded-2xl border px-4 py-3 shadow-lg backdrop-blur-xl ${
+            toast.type === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-red-200 bg-red-50 text-red-700"
+          }`}
+        >
+          <p className="text-sm font-semibold">{toast.message}</p>
+        </div>
+      )}
+
       <div className="w-full max-w-6xl grid items-center gap-12 md:grid-cols-2">
         <div className="space-y-6">
           <p className="text-sm font-semibold tracking-[0.25em] text-blue-600 uppercase">
@@ -91,21 +184,6 @@ export default function RegisterPage() {
             Register as a student or administrator to manage dorm rooms,
             bookings, and system access efficiently.
           </p>
-
-          <div className="grid gap-3 text-sm text-slate-600">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-blue-600" />
-              Student & admin accounts
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-blue-600" />
-              Secure authentication
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-blue-600" />
-              Fast system access
-            </div>
-          </div>
         </div>
 
         <div className="rounded-[2rem] border border-white/60 bg-white/75 p-8 shadow-[0_20px_60px_rgba(15,23,42,0.10)] backdrop-blur-xl">
@@ -113,11 +191,11 @@ export default function RegisterPage() {
             Create Your Account
           </h2>
 
-          <div className="mb-6 flex rounded-lg bg-slate-200 p-1">
+          <div className="mb-6 flex rounded-lg bg-slate-100 p-1">
             <button
               type="button"
               onClick={() => setRole("student")}
-              className={`flex-1 py-2 rounded-md text-sm font-semibold ${
+              className={`flex-1 rounded-md py-2 text-sm font-semibold transition ${
                 role === "student"
                   ? "bg-white text-blue-600 shadow-sm"
                   : "text-slate-600"
@@ -128,7 +206,7 @@ export default function RegisterPage() {
             <button
               type="button"
               onClick={() => setRole("admin")}
-              className={`flex-1 py-2 rounded-md text-sm font-semibold ${
+              className={`flex-1 rounded-md py-2 text-sm font-semibold transition ${
                 role === "admin"
                   ? "bg-white text-blue-600 shadow-sm"
                   : "text-slate-600"
@@ -144,24 +222,19 @@ export default function RegisterPage() {
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
                   Gender
                 </label>
-                <div
-                  className={`flex gap-6 rounded-2xl border p-4 ${
-                    errors.gender
-                      ? "border-red-400 bg-red-50"
-                      : "border-slate-200 bg-slate-50"
-                  }`}
-                >
+                <div className="flex gap-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <label className="flex items-center gap-2 text-sm text-slate-700">
                     <input
                       type="radio"
                       name="gender"
                       value="Boy"
                       className="h-4 w-4"
+                      checked={formData.gender === "Boy"}
                       onChange={(e) =>
                         setFormData({ ...formData, gender: e.target.value })
                       }
                     />
-                    Boy
+                    Male
                   </label>
                   <label className="flex items-center gap-2 text-sm text-slate-700">
                     <input
@@ -169,11 +242,12 @@ export default function RegisterPage() {
                       name="gender"
                       value="Girl"
                       className="h-4 w-4"
+                      checked={formData.gender === "Girl"}
                       onChange={(e) =>
                         setFormData({ ...formData, gender: e.target.value })
                       }
                     />
-                    Girl
+                    Female
                   </label>
                 </div>
                 {errors.gender && (
@@ -194,6 +268,7 @@ export default function RegisterPage() {
                 className={`${inputClass} ${
                   errors.name ? "border-red-400" : "border-slate-200"
                 }`}
+                value={formData.name}
                 onChange={(e) =>
                   setFormData({ ...formData, name: e.target.value })
                 }
@@ -215,6 +290,7 @@ export default function RegisterPage() {
                 className={`${inputClass} ${
                   errors.email ? "border-red-400" : "border-slate-200"
                 }`}
+                value={formData.email}
                 onChange={(e) =>
                   setFormData({ ...formData, email: e.target.value })
                 }
@@ -228,14 +304,14 @@ export default function RegisterPage() {
 
             <div>
               <label className="block text-sm font-semibold text-slate-700">
-                {role === "student" ? "Student ID Number" : "Admin ID"}
+                {role === "student" ? "Student ID Number" : "Admin ID Number"}
               </label>
               <input
                 type="text"
+                inputMode="numeric"
+                maxLength={10}
                 placeholder={
-                  role === "student"
-                    ? "Enter your student ID number"
-                    : "Enter your admin ID"
+                  role === "student" ? "68306130XX" : "77006131XX"
                 }
                 className={`${inputClass} ${
                   role === "student"
@@ -246,11 +322,13 @@ export default function RegisterPage() {
                       ? "border-red-400"
                       : "border-slate-200"
                 }`}
+                value={role === "student" ? formData.studentId : formData.adminId}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
-                    [role === "student" ? "studentId" : "adminId"]:
-                      e.target.value,
+                    [role === "student"
+                      ? "studentId"
+                      : "adminId"]: normalizeDigits(e.target.value),
                   })
                 }
               />
@@ -271,10 +349,15 @@ export default function RegisterPage() {
                 className={`${inputClass} ${
                   errors.password ? "border-red-400" : "border-slate-200"
                 }`}
+                value={formData.password}
                 onChange={(e) =>
                   setFormData({ ...formData, password: e.target.value })
                 }
               />
+              <p className="mt-1 text-xs text-slate-500">
+                At least 8 characters, 1 lowercase letter, 1 uppercase letter,
+                and 1 symbol.
+              </p>
               {errors.password && (
                 <p className="mt-1 text-xs font-medium text-red-500">
                   {errors.password}
@@ -292,6 +375,7 @@ export default function RegisterPage() {
                 className={`${inputClass} ${
                   errors.confirmPassword ? "border-red-400" : "border-slate-200"
                 }`}
+                value={formData.confirmPassword}
                 onChange={(e) =>
                   setFormData({
                     ...formData,
@@ -313,18 +397,6 @@ export default function RegisterPage() {
               Register Now
             </button>
           </form>
-
-          <div className="mt-8 border-t border-slate-200 pt-5 text-center">
-            <p className="text-sm text-slate-500">
-              Alread&apos;y have an account?{" "}
-              <button
-                onClick={() => router.push("/login")}
-                className="font-semibold text-blue-600 hover:underline"
-              >
-                Login
-              </button>
-            </p>
-          </div>
         </div>
       </div>
     </div>
